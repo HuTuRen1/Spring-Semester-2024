@@ -1,0 +1,104 @@
+// ***********************************************
+// Url for ui responder for user data operations
+// ***********************************************
+function p_getActionEditUserDataURL() {
+    return '/edituserdata';
+}
+
+/**
+ * Document/title page goto page operation
+ */
+function titleGoToPage(formId, hiddenFormId) {
+    var pageId = Number(document.forms[formId].pageId.value);
+    document.forms[hiddenFormId].action += (pageId == 0 || isNaN(pageId) ? '1' : pageId);
+    document.forms[hiddenFormId].submit();
+    return false;
+}
+
+function checkCredit(creditNumberField, creditTypeField) {
+    var strCreditNumber;
+    var strCreditType;
+    var strMonth;
+    var strYear;
+    var intMonth;
+    var intYear;
+
+    strCreditNumber = creditNumberField.value;
+    strCreditType = creditTypeField.value;
+
+    if (strCreditNumber == null || strCreditNumber == '' || strCreditType == null || strCreditType == '') {
+        return false;
+    }
+
+    if (strCreditType == 'Mastercard') {
+        // first two digits: 51-55
+        // length: 16
+        var firstTwoDigits = strCreditNumber.substr(0, 2);
+        if (firstTwoDigits < 51 || firstTwoDigits > 55) {
+            return false;
+        }
+        if (strCreditNumber.length != 16) {
+            return false;
+        }
+        return true;
+    }
+
+    if (strCreditType == 'VISA') {
+        // first digit: 4
+        // length: 13 or 16
+        if (strCreditNumber.substr(0, 1) != 4) {
+            return false;
+        }
+        if (strCreditNumber.length != 16 && strCreditNumber.length != 13) {
+            return false;
+        }
+        return true;
+    }
+
+    if (strCreditType == 'Amex') {
+        // first digits: 34 or 37
+        // length: 15
+        var firstTwoDigits = strCreditNumber.substr(0, 2);
+        if (firstTwoDigits != 34 && firstTwoDigits != 37) {
+            return false;
+        }
+        if (strCreditNumber.length != 15) {
+            return false;
+        }
+        return true;
+    }
+
+    if (strCreditType == 'Discover') {
+        // first digits: 6011
+        // length: 16
+        if (strCreditNumber.substr(0, 4) != 6011) {
+            return false;
+        }
+        if (strCreditNumber.length != 16) {
+            return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+// Show the dialog box "ref"
+function showDialog(ref) {
+    // Center the dialog box
+    $(ref).style.left = getWidthCenter($(ref).getWidth());
+    $(ref).style.top = getHeightCenter($(ref).getHeight());
+    if ($(a+'-submit')) {
+        $(ref + '-submit').enable();
+    }
+
+    // Show the dialog box
+    // new Effect.Appear( ref, { duration: 0 });
+    $(ref).show();
+}
+
+// Hide the dialog box "ref"
+function hideDialog(ref) {
+    $(ref).hide();
+    $(ref + '-submit').disable();
+}

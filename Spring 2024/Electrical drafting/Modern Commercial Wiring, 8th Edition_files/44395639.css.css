@@ -1,0 +1,133 @@
+.flright{float:right}
+/*Collection Home*/
+#colllist h2{display:none}
+.dark-text{color:#212529}
+.dark-text:hover{color:#111519}
+.t-publist ul li * {text-align:center!important}
+/* Bookshelf */
+#acctlis h1{display:none}
+#acctlis .t-value-end-date{color:#df0000}
+/*Redemption link*/
+.add-item {
+    background:#f0f0f0;
+    border-radius:0.5em;
+    border: 1px solid #e0e0e0;
+    font-weight:800;
+}
+.add-item > .js-redeem{
+    margin: auto;
+    display: block;
+    text-align:center;
+    padding:1em 0;
+    color:#497097 !important;
+}
+#t-my .text-muted{
+    color: #6C757D !important;
+}
+#t-my .t-cover-image img{
+    width: 100% !important;
+    max-width: 150px !important;
+}
+/* Table of Contents */
+h1.t-tocnav {display:none} /* removes heading "Abbreviated Contents" */
+h2.t-tocnav {display:none} /* removes default title on ToC block */
+.t-tocnav, .t-toc-level{
+    list-style-type:none;
+    padding-left:0
+}
+.t-quick.search-box{
+    margin-top:.25rem;
+    max-width:190px
+}
+li.t-toc{
+    font-weight:bold;
+    /*margin-top:1rem*/
+}
+li.t-toc-level{margin-bottom:1rem}
+ul.t-toc-level > li.t-toc{
+    font-weight:normal;
+    margin-top:0
+}
+.wbimg{
+    background-image:url("https://www.g-wonlinetextbooks.com/readericons/~stream");
+    background-position:-144px 50%;
+    background-color:#666;
+    margin-right:5px;
+    border:3px solid #fff;
+    border-radius:20px;
+    display:inline-block;
+    width:40px;
+    height:40px
+}
+.workbookff{line-height:35px}
+span.t-i.t-i-html-small, span.t-i.t-i-htm-small {
+    display:none !important;
+    background:none !important;
+}
+span.t-attachment-name {font-weight:bold}
+
+/* Denied */
+.denied{
+    margin: 0 0 1em;
+    padding: 1em;
+    border-radius: 1em
+}
+
+/* Collections */
+.highlight{
+    font-weight:bold;
+    text-decoration:underline
+}
+ul.t-collection-publist{
+    padding-left:20px;
+    list-style-type:none
+}
+
+h2.t-collection-publist {
+    font-size: 1em;
+    font-weight: bold;
+    margin-top: 1em !important
+}
+
+/*TX static pages*/
+ul.t-latest-publist {
+    display: block;
+    width: 100%;
+    padding-left: 0;
+    margin: auto 0;
+}
+.t-metatag .t-latest-publist li {
+    list-style: none;
+    overflow:hidden;
+    clear:both;
+    margin: 1.5em auto;
+}
+.t-metatag .t-value-coverurl {
+    clear: left;
+    float: left;
+    padding-right: 1rem;
+}
+.t-value-coverurl img {width: 150px}
+.t-index-main a {font-weight: bold}
+
+/*LTI Download pg*/
+.t-publist li {
+    display: block;
+    overflow: hidden
+}
+
+/*LTI TIcket pg*/
+input.txtltibug {
+    display:block !important;
+    width:100% !important;
+    padding: .375rem .75rem !important;
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+    color: #495057 !important;
+    border: 1px solid #868e96 !important
+}
+
+/*Order History*/
+table.t-subscriptiondetails .t-element, table.t-subscriptiondetails .t-label {
+    display: none
+}

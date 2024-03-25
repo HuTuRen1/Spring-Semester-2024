@@ -1,0 +1,215 @@
+var processingImgId = 'i-processing-feedback';
+// **********************
+// Generic Ajax functions
+// **********************
+function ajaxCall(ajaxUrl, paramString) {
+    // show 'processing...' image if feedback has not been started
+    // isFeedbackStarted is an admin side only method and this
+    // image feedback is to be shown only on admin
+    if (isdefined('isFeedbackStarted') && !isFeedbackStarted() && $(processingImgId)) {
+        showProgressImage();
+    }
+    // sure we make a fresh start on the new page.
+    new Ajax.Request(ajaxUrl, {
+        parameters : paramString,
+        onSuccess : ajaxResponseDOMUpdate,
+        onFailure : ajaxResponseDOMUpdate,
+        asynchronous : true,
+        failureUrl : window.document.location.pathname
+    });
+    return false;
+}
+
+function optionsMerge(o1, o2) {
+    result = {};
+    for ( var attrname in o1)
+        result[attrname] = o1[attrname];
+    for ( var attrname in o2)
+        result[attrname] = o2[attrname];
+    return result;
+}
+
+function jsonAjaxCall(url, postBody, options) {
+    return new Ajax.Request(url, optionsMerge({
+        onSuccess : jsonAjaxHandler(options.resultProcessor),
+        onFailure : jsonAjaxHandler(options.failureProcessor || options.resultProcessor),
+        postBody : postBody,
+        asynchronous : true,
+        contentType : "application/json",
+        encoding : "UTF-8"
+    }, options));
+
+}
+
+function jsonSuccess(response) {
+    return Math.floor(response.status / 100) < 4 && response.responseJSON && !response.responseJSON.message;
+}
+
+function jsonAjaxHandler(jsonProcessor) {
+    return function(response) {
+        window.hideProgressImage();
+        if (response.responseJSON) {
+            if (typeof (jsonProcessor) !== 'undefined' || jsonProcessor)
+                jsonProcessor(response.responseJSON)
+            else if (jsonSuccess(response)) {
+                alert("Request Succeeded.");
+                console.log(response.responseJSON);
+            } else {
+                alert(response.responseJSON.message + "\n\nRequest failed. See JavaScript console for details. ");
+                console.log(response.responseJSON);
+            }
+        } else if (response.request.success()) {
+            alert("Request Succeeded; response was: " + response.responseText);
+        } else {
+            window.showAdminError()
+            alert("Request failed. Error sent back: " + response.responseText);
+        }
+    };
+}
+
+function ajaxResponseFailure(response) {
+    // hide feedback image
+    hideProgressImage();
+    alert("Request failed. Error sent back: >>" + response.responseText + "<<");
+}
+
+function showAdminError(errorMsg) {
+    // make sure we can display a nice dialog. Check for
+    // dialog for error display, check for have a showDialog function,
+    // otherwise just use built-in 'alert'
+    if (isdefined('stopFeedback')) {
+        stopFeedback();
+    }
+    if ($('dialog-operation-error') && $('dialog-operation-error-msg') && showDialog) {
+        $('dialog-operation-error-msg').innerHTML = errorMsg;
+        showDialog('dialog-operation-error');
+    } else {
+        alert(errorMsg);
+    }
+}
+
+function ajaxResponseDOMUpdate(response) {
+    if (response.status != 200) {
+        window.location.assign(response.request.options.failureUrl);
+    }
+    // stop feedback if such method defined in system
+    // that would be admin side
+    if (isdefined('stopFeedback')) {
+        stopFeedback();
+    }
+    hideProgressImage();
+    try {
+        ckeditorCleanAll();
+    } catch (e) {
+        alert("ckeditor cleaning failed");
+    }
+    // instantiate a new XMLDoc object. Send any errors to the xmlErrorHandler
+    // function
+    var objDom = new XMLDoc(response.responseText, xmlErrorHandler)
+    var operationStatus = objDom.selectNode('/status').getText()
+    if (operationStatus == "success") {
+        var sectionListEl = objDom.selectNode('/sectionList');
+        var sectionList = sectionListEl.getElements("section");
+        for (var idx = 0; idx < sectionList.length; idx++) {
+            var oneSection = sectionList[idx];
+            var sectionId = oneSection.getAttribute("id");
+            var sectionText = oneSection.getText();
+            if (sectionId == "alert") {
+                alert(sectionText);
+            } else if ($(sectionId)) {
+                Element.update($(sectionId), sectionText);
+            }
+        }
+        setupAdminPage();
+        runDeferred();
+    } else if (operationStatus == "redirect") {
+        var location = objDom.selectNode('/location').getText();
+        if (location.length == 0) {
+            alert("Redirect location not specified.");
+        }
+        window.location = location;
+    } else {
+        showAdminError(objDom.selectNode('/text').getText());
+    }
+}
+function xmlErrorHandler(oneError) {
+    nothing.nowherse = oneError;
+    /** make browser crash */
+    alert("XML parsing error: " + oneError);
+    sleep(23);
+}
+
+function showProgressImage() {
+    // Center the progress image
+    $(processingImgId).show();
+}
+
+function hideProgressImage() {
+    // hide feedback image if existing
+    if ($(processingImgId)) {
+        Element.hide(processingImgId);
+    }
+}
+
+// General purpose function to get horizontal center of current window, adjusted
+// for width of object being placed
+function getWindowWidthCenter(w) {
+    Position.prepare();
+    return (parseInt(document.documentElement.clientWidth - w) / 2) + Position.deltaX + 'px';
+}
+function getWindowWidthCenterInt(w) {
+    Position.prepare();
+    return (parseInt(document.documentElement.clientWidth - w) / 2) + Position.deltaX;
+}
+// General purpose function to get vertical center of current window, adjusted
+// for height of object being placed
+function getWindowHeightCenter(h) {
+    Position.prepare();
+    return (parseInt(document.documentElement.clientHeight - h) / 2) + Position.deltaY + 'px';
+}
+function getWindowHeightCenterInt(h) {
+    Position.prepare();
+    return (parseInt(document.documentElement.clientHeight - h) / 2) + Position.deltaY;
+}
+
+// General purpose function to get horizontal center of current window, adjusted
+// for width of object being placed
+function getWidthCenter(w) {
+    Position.prepare();
+    return (parseInt(document.documentElement.clientWidth - w) / 2) + Position.deltaX + 'px';
+}
+
+// General purpose function to get vertical center of current window, adjusted
+// for height of object being placed
+function getHeightCenter(h) {
+    Position.prepare();
+    return (parseInt(document.documentElement.clientHeight - h) / 2) + Position.deltaY + 'px';
+}
+
+// escape HTML function
+function escapeHTML(origString) {
+    return origString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Generic XML functions
+ */
+
+// handle xml processing errors
+function xmlError(oneError) {
+    nothing.nowherse = oneError;
+    /** make browser crash alert is evil!. */
+
+    alert("XML parsing error: " + oneError);
+    sleep(23);
+}
+
+// check to see if a variable is defined
+function isdefined(variable) {
+    return (typeof (window[variable]) == "undefined") ? false : true;
+}
+
+function prefetchImage(url) {
+    var im = new Image();
+    im.src = url;
+}

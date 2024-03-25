@@ -1,0 +1,107 @@
+.t-i {
+    display: none;
+}
+/* Icon container */
+span.t-i.ui-li-icon {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    zoom: 1;
+    text-indent: -9999px;
+    background-image: url("../images/tizra_reader/media-icons/generic.png");
+    height: 29px;
+    width: 38px;
+    max-height: 29px;
+    max-width: 38px;
+    background-position: 0 50%;
+    background-repeat: no-repeat;
+    float: left;
+}
+
+span.t-i.t-i-pdf-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/pdf.png");
+}
+
+span.t-i.t-i-htm-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/htm.png");
+}
+
+span.t-i.t-i-doc-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/doc.png");
+}
+
+span.t-i.t-i-docx-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/docx.png");
+}
+span.t-i.t-i-epub-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/epub.png");
+}
+
+span.t-i.t-i-html-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/html.png");
+}
+span.t-i.t-i-mov-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/mov.png");
+}
+
+span.t-i.t-i-mp3-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/mp3.png");
+}
+span.t-i.t-i-mp4-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/mp4.png");
+}
+
+span.t-i.t-i-ppt-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/ppt.png");
+}
+
+span.t-i.t-i-pptx-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/pptx.png");
+}
+span.t-i.t-i-txt-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/txt.png");
+}
+span.t-i.t-i-xls-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/xls.png");
+}
+span.t-i.t-i-xlsx-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/xlsx.png");
+}
+span.t-i.t-i-jpg-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/jpeg.png");
+}
+span.t-i.t-i-gif-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/gif.png");
+}
+span.t-i.t-i-psd-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/psd.png");
+}
+span.t-i.t-i-png-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/png.png");
+}
+span.t-i.t-i-tiff-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/tiff.png");
+}
+span.t-i.t-i-sh-small {
+    display: block;
+    background-image: url("../images/tizra_reader/media-icons/tiff.png");
+}

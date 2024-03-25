@@ -1,0 +1,1620 @@
+'use strict'
+
+//==============================================================================
+// window.tizra global object
+//==============================================================================
+
+;(function (tizra, $) {
+    const defaults = {
+        /**
+         * Check if the user is signed in. SSO sites can override this by
+         * setting tizra.loggedIn to an alternate implementation in the
+         * global header.
+         *
+         * @returns true if user is signed in
+         */
+        loggedIn: function () {
+            return !! $('#loginForm-1-logout').length
+        },
+
+        /**
+         * Check if the user is signed in, otherwise show the login form.
+         * SSO sites can override this by setting tizra.requireLogin to an
+         * alternate implementation in the global header.
+         *
+         * @returns true if already signed in
+         */
+        requireLogin: function () {
+            if (tizra.loggedIn()) {
+                return true
+            }
+            $('#myModal').modal('show')  // #myModal really?!?
+        },
+
+        /**
+         * Promise-based fetcher that sets appropriate options for tizra
+         * and attaches parsed JSON as response.data
+         */
+        fetch: function (url, options) {
+            options = Object.assign({
+                credentials: 'include',  // send cookies!
+                headers: {
+                    'content-type': 'application/json',
+                },
+                // Don't set mode: 'no-cors' because that prevents setting
+                // custom headers such as content-type.
+            }, options || {})
+
+            // Encode options.data as JSON body.
+            if ('data' in options && !('body' in options)) {
+                options.body = JSON.stringify(options.data)
+            }
+            delete options.data
+
+            return fetch(url, options)
+                .then(function (response) {
+                    // Decode response as json, if possible, and attach as
+                    // response.data.
+                    return response.json()
+                        .then(function (data) {
+                            response.data = data
+                            return response
+                        })
+                        .catch(function () {
+                            // Note this doesn't catch failed fetches, only
+                            // failed JSON decodes.
+                            console.warn("couldn't decode JSON response")
+                            return response
+                        })
+                })
+        },
+
+        /**
+         * Array sorter using localeCompare.
+         */
+        magicSort: function (arr, key, inPlace) {
+            const result = inPlace ? arr : arr.slice()
+            const keyString = function (x) {
+                x = key ? key(x) : x
+                return x === null || x === undefined ? '' : '' + x
+            }
+            result.sort(function (a, b) {
+                a = keyString(a)
+                b = keyString(b)
+                return a.localeCompare(b, undefined, {
+                    sensitivity: 'base',
+                    ignorePunctuation: true,
+                    numeric: true,
+                })
+            })
+            return result
+        },
+
+        /**
+         * escapeRegExp ponyfill...
+         * https://github.com/benjamingr/RegExp.escape/blob/master/polyfill.js
+         * except a simple function rather than a speculative polyfill.
+         */
+        escapeRegExp: function (s) {
+            return String(s).replace(/[\\^$*+?.()|[\]{}]/g, '\\$&')
+        },
+
+        /**
+        * Escape quotation marks in addition to ampersand and left
+        * angle bracket, so it can be used for attribute values too.
+        * https://stackoverflow.com/a/9189067/347386
+        */
+        escapeHtml: function (s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+        },
+
+        /**
+        * Catch form submit and enter key in inputs to invoke handler.
+        * Caller is responsible for e.preventDefault()
+        */
+        onSubmit: function (form, selector, handler) {
+            if (! handler) {
+                handler = selector
+                selector = 'input'
+            }
+            const $forms = $(form)
+
+            $forms.each(function () {
+                const $form = $(this)
+                const $inputs = $form.find('input')
+
+                $inputs.on('keydown', function (e) {
+                    // isDefaultPrevented checks whether the auto-complete code has
+                    // already handled this event.
+                    if (e.keyCode === 13 && !e.isDefaultPrevented()) {
+                        return handler(e, $form[0])
+                    }
+                })
+            })
+
+            $forms.on('submit', function (e) {
+                return handler(e, e.target)
+            })
+        },
+
+        // Page recognizers.
+        isBookshelfPage: function () {
+            return !! $('.my-bookshelf').length
+        },
+        isDetailPage: function () {
+            return !! $('div.t-toc').length
+        },
+        isExcerptDetailPage: function () {
+            return !! $('div.t-excerpt-toc').length
+        },
+        isBookDetailPage: function () {
+            return !! $('div.t-document-toc').length
+        },
+        isSearchResultsPage: function () {
+            return !! $('.t-hitcount, .t-nohits').length
+        },
+
+        // Form helpers.
+        disableForm: function (form) {
+            $(form).find('fieldset').prop('disabled', true)
+        },
+        enableForm: function (form) {
+            $(form).find('fieldset').prop('disabled', false)
+        },
+        resetFeedback: function (formGroup) {
+            const $formGroup = $(formGroup)
+            $formGroup.find('.form-control-feedback').each(function () {
+                const $feedback = $(this)
+                // save the first time
+                if (!$feedback.is('[data-original]')) {
+                    $feedback.attr('data-original', $feedback.html())
+                }
+                // restore every time
+                $feedback.html($feedback.attr('data-original'))
+            })
+            $formGroup.find('.form-control')
+                .removeClass('is-valid is-invalid')
+            $formGroup.find('.form-control-feedback')
+                .removeClass('valid-feedback invalid-feedback')
+        },
+        setFeedback: function (formGroup, status, message) {
+            const $formGroup = $(formGroup)
+            const valid = status === 'success' ? 'valid' : 'invalid'
+            tizra.resetFeedback($formGroup)
+            if (message) {
+                $formGroup.find('.form-control-feedback')
+                    .html(message)
+            }
+            $formGroup.find('.form-control')
+                .addClass('is-' + valid)
+            $formGroup.find('.form-control-feedback')
+                .addClass(valid + '-feedback')
+        },
+        fillFromQueryString: function (mapQueryInputs, opts) {
+            opts = Object.assign({
+                blank: false,
+            }, opts)
+            const search = new URLSearchParams(window.location.search)
+            Object.entries(mapQueryInputs).forEach(function (kv) {
+                const k = kv[0], $input = $(kv[1]), v = search.get(k) || ''
+                if (v || opts.blank) {
+                    $input.val(v)
+                }
+            })
+        },
+
+        // Utilities.
+        safeSplit: function (str, splitter) {
+            return ((str || '')
+                    .split(splitter)
+                    .map(function (s) { return s.trim() })
+                    .filter(function (s) { return s.length })
+            )
+        },
+        fullUrl: function (u) {
+            return new URL(u, document.location).href
+        },
+        sameUrl: function (a, b) {
+            const urls = [a, b]
+                .map(tizra.fullUrl)
+                .map(function (s) { return s.replace(/^https?:/i, '') })
+            return urls[0] === urls[1]
+        },
+    }
+
+    // Overwrite defaults with existing tizra object, then overwrite tizra
+    // object with final result.
+    Object.assign(tizra, Object.assign(defaults, tizra))
+})(window.tizra = window.tizra || {}, jQuery)
+
+
+//==============================================================================
+// Master Block: Main Nav Bar
+//==============================================================================
+
+// Set bookshelf link in nav.
+jQuery(function ($) {
+    if (! tizra.loggedIn()) return
+
+    const href = $('a.t-login-username').attr('href')
+        //.replace('~userInfo', '~userLicenses')
+    //if (href.indexOf('~userLicenses') === -1) {
+    if (href.indexOf('~userInfo') === -1) {
+        console.error("can't get bookshelf link from footer")
+    }
+    $('a.username-nav-link').attr('href', $('a.t-login-username').attr('href'))
+})
+
+// Set the sign out links from the actual logout link in the Login Box.
+jQuery(function ($) {
+    const $logout = $('a#loginForm-1-logout')
+    if ($logout.length) {
+        $('a.js-logout').attr('href', $logout[0].href)
+    }
+})
+
+// Set the link for Browse Topics in the nav.
+jQuery(function ($) {
+    const $defaultCollection = $('.js-resources .default-collection a')
+    const $browseTopics = $('a.js-topics')
+    if ($defaultCollection.length && $browseTopics.attr('href') === '#') {
+        $browseTopics.attr('href', $defaultCollection[0].href)
+    }
+})
+
+// Modify quick search
+jQuery(function ($) {
+    const $quick = $('.t-quick')
+
+    // Quick search box(es) (desktop and mobile)
+    $quick.find('input[name="searchText"]').attr('placeholder', 'Search')
+    $quick.find('select[name="context"]').removeAttr('style')
+
+    // The scope selector is hidden by default so that we can conditionally
+    // show it here. This is less disruptive to the user than hiding it
+    // after page load.
+    const $scopes = $quick.filter('.search-box-full').find('.t-scope')
+    $scopes.each(function () {
+        const $scope = $(this)
+        if ($scope.find('option').length > 1) {
+            $scope.addClass('js-show')
+        }
+    })
+})
+
+
+//==============================================================================
+// Master Block: Jumbotron Home Page
+//==============================================================================
+
+// Override the default 33.333vw min-height on the jumbotron to match the
+// actual loaded jumbotron image. This allows images wider than 3:1 to
+// avoid unnecessary horizontal cropping, and images narrower than 3:1 to
+// avoid undesired vertical cropping.
+jQuery(function ($) {
+    function setMinHeight() {
+        const $jumbo = $('.tizra-jumbotron')
+        const $img = $('.tizra-jumbotron-image')
+        const img = $img.length && $img[0]
+        if (img && img.naturalHeight) {
+            const minHeight = 100 * img.naturalHeight / img.naturalWidth
+            $('<style>\n' +
+              '  @media (min-width: 992px) {\n' +
+              '    .tizra-jumbotron {\n' +
+              '      min-height: ' + minHeight + 'vw;\n' +
+              '    }\n' +
+              '  }\n' +
+              '</style>').appendTo('head')
+        } else {
+            setTimeout(setMinHeight, 100)
+        }
+    }
+    setMinHeight()
+})
+
+
+//==============================================================================
+// Layouts: Author Index, Title Index
+//==============================================================================
+
+// Convert alphabetical index to select on mobile.
+jQuery(function ($) {
+    const tizraId = $('meta[name="tizra-id"]').attr('content')
+    const $indexes = $('.t-alphaindex')
+
+    if (! $indexes.length) return
+
+    // Note definitely more than one: list and thumbs
+    $indexes.each(function () {
+        const $index = $(this)
+        const $all = $index.find('.t-alpha-index-all')
+        const $alpha = $index.find('.t-alphabet')
+        const $select = $('<select class="custom-select"></select>')
+        // concat arrays instead of .add() to enforce ALL at top
+        $($all.find('li').toArray().concat(
+            $alpha.find('li').toArray())
+        ).each(function () {
+            const $li = $(this)
+            const href = $li.find('a').attr('href')
+            $('<option></option>')
+                .attr('value', href)
+                .prop('disabled', !href)
+                .prop('selected', $li.is('.t-current'))
+                .text($li.text().trim())
+                .appendTo($select)
+        })
+        $select.on('change', function (e) {
+            document.location = $(e.target).val()
+        })
+        $all.after($select)
+
+        // Set up show/hide on mobile
+        $select.addClass('d-lg-none')
+        $all.add($alpha).addClass('d-none d-lg-inline-block')  // opposite of select
+        $index.find('span.current-index').addClass('d-none d-lg-inline')
+    })
+})
+
+
+//==============================================================================
+// Layout: Collection Home
+//==============================================================================
+
+// Add t-current class to collection list.
+jQuery(function ($) {
+    // <meta name="tizra-vcd-id"> is added by the Bootstrap template in
+    // a Free HTML block on the Collection Home layout.
+    const collectionId = ($('meta[name="tizra-vcd-id"]').attr('content') ||
+                          $('meta[name="tizra-id"]').attr('content'))
+    $('.book-list-category-box li#t-id-' + collectionId).addClass('t-current')
+})
+
+// Convert collection list to dropdown on mobile.
+jQuery(function ($) {
+    // <meta name="tizra-vcd-id"> is added by the Bootstrap template in
+    // a Free HTML block on the Collection Home layout.
+    const collectionId = ($('meta[name="tizra-vcd-id"]').attr('content') ||
+                          $('meta[name="tizra-id"]').attr('content'))
+    const $boxes = $('.book-list-category-box')
+
+    if (! $boxes.length) return
+
+    // Don't assume just one
+    $boxes.each(function () {
+        const $box = $(this)
+        const $select = $('<select class="custom-select"></select>')
+        $box.find('li').each(function () {
+            const $li = $(this)
+            const $a = $li.find('a')
+            $('<option></option>')
+                .attr('value', $a.attr('href'))
+                .prop('selected', $li[0].id === 't-id-' + collectionId)
+                .text($a.text().trim())
+                .appendTo($select)
+        })
+        $select.on('change', function (e) {
+            document.location = $(e.target).val()
+        })
+        $select.appendTo($box)
+
+        // Set up show/hide on mobile
+        $select.addClass('d-md-none')
+        $box.find('ul').addClass('d-none d-md-block')  // opposite of select
+
+        // Now that media-based d- classes are set up, override
+        // .hidden-until-shown
+        $box.show()
+    })
+})
+
+// Remove everything in the list blocks except the ul (which also includes
+// the pager)
+jQuery(function ($) {
+    $('.t-collectionindex > *')
+        .not('ul')
+        .remove()
+})
+
+//==============================================================================
+// Layouts: Author Index, Title Index, Collection Home
+//==============================================================================
+
+// Author, title and collection indexes have both gallery-style
+// and listing-style presentations. Both are .hidden-until-shown and must
+// be shown here.
+//
+// Additionally virtual collection indexes might have sub-collections. In
+// that case, only show the sub-collections, not the gallery or listing
+// of publications within the super-collection.
+jQuery(function ($) {
+    const $subcollections = $('.t-subcollections')
+
+    if ($subcollections.find('li').length) {
+        $('.t-subcollections')
+            .removeClass('t-publist')  // avoid gallery presentation
+            .show()
+
+        // If we're on a virtual collection, then we'll find <meta
+        // name="tizra-vcd-id"> in a Free HTML block on the Collection Home
+        // layout. In that case, don't show the publications, only show the
+        // subcollections.
+        if ($('meta[name="tizra-vcd-id"]').length) {
+            return
+        }
+    }
+
+    // Find the unordered lists. There will be two of these per index, one
+    // for .t-book-gallery and one for .t-book-listing
+    const $ul = $('div.t-alphaindex ul.t-items, div.t-collectionindex ul')
+
+    // Remove list items except for books and excerpts, so that collections
+    // show only in the subcollections list, not in the publication list.
+    $ul.children('li')
+        .not(':has(.metatype-Book)')
+        .not(':has(.metatype-PageRange)')
+        .remove()
+
+    // We're showing publications, so prepare the list style switcher then
+    // insert above the indexes.
+    const $switcher = $(
+        '<div class="book-list-type">\n' +
+        '  <span class="book-list-toggle-label">List Style</span>\n' +
+        '  <a href="#" data-type="gallery" title="Show Gallery">\n' +
+        '    <span class="fa fa-2x fa-th-large"></span>\n' +
+        '  </a>\n' +
+        '  <a href="#" data-type="listing" title="Show List">\n' +
+        '    <span class="fa fa-2x fa-th-list"></span>\n' +
+        '  </a>\n' +
+        '</div>'
+    )
+
+    const show = function (type) {
+        type = ['listing'].indexOf(type) >= 0 ? type : 'gallery'
+        $('.t-book-gallery').toggle(type === 'gallery')
+        $('.t-book-listing').toggle(type === 'listing')
+        localStorage && localStorage.setItem('t-listType', type)
+    }
+
+    $switcher.find('a').click(function (e) {
+        e.preventDefault()
+        show(this.dataset.type || 'gallery')
+    })
+
+    // Since this is attaching to multiple lists, this will clone $switcher
+    // along with the click handler.
+    $ul.before($switcher)
+
+    // Show the first time.
+    show(localStorage && localStorage.getItem('t-listType'))
+})
+
+
+//==============================================================================
+// Layout: Advanced Search
+//==============================================================================
+
+// This only applies to the classic advanced search, not the search app.
+jQuery(function ($) {
+    // Remove inline style
+    $('div.t-advanced-scope select').removeAttr('style')
+
+    // Add abbreviated search tips with modal link
+    $('div.t-advancedsearch > :header:first')
+        .wrap('<div class="js-heading-with-tips"></div>')
+        .after('<span class="tizra-tips">Tips: +required -excluded <a href="#" data-toggle="modal" data-target="#searchTipsModal">(more)</a></span>')
+})
+
+
+//==============================================================================
+// Layout: User Licenses
+//==============================================================================
+
+// Fill the bookshelf from the license block, partitioned by books and
+// chapters (excerpts).
+jQuery(function ($) {
+    if (! tizra.isBookshelfPage()) return
+
+    // Check for my-items sections, otherwise there's nothing to do.
+    const $sections = $('.my-bookshelf .my-items')
+    if (! $sections.length) return
+
+    // Find the licenses.
+    let $allItems = $('ul.t-license li > div')
+
+    // Sometimes there are multiple licenses for a single item. Remove the
+    // duplicates.
+    const seen = {}
+    $allItems = $allItems
+        .filter(function () {
+            let id = this.dataset.tizraId
+            seen[id] = (seen[id] || 0) + 1
+            return seen[id] < 2
+        })
+
+    // Sort the licenses in alpha-numeric order. This only sorts the items
+    // in the jQuery object, not actually in the DOM, but it takes affect
+    // when the items are appended to my-items below.
+    tizra.magicSort($allItems, function (x) { return x.dataset.sort }, true)
+
+    // Move books from license block to my-items.
+    $sections.each(function () {
+        const $section = $(this)
+        const metatypes = tizra.safeSplit(this.dataset.metatype)
+        const $publist = $section.find('.t-publist').first()
+
+        if (! metatypes.length) {
+            console.error("missing data-metatype on my-items")
+            return
+        }
+
+        if (! $publist.length) {
+            console.error("missing div.t-publist in my-items")
+            return
+        }
+
+        const sel = metatypes.map(function (t) { return '.metatype-' + t }).join(',')
+        const $items = $allItems.filter(sel)
+        const $noItems = $section.find('.no-items')
+        if ($items.length) {
+            $noItems.hide()
+            $items.appendTo($publist).wrapAll('<ul></ul>').wrap('<li></li>')
+        }
+    })
+
+    // Hide redundant empty sections.
+    let $empties = $sections.not(function () {
+        return $(this).find('.t-publist li').length
+    })
+    if ($empties.length === $sections.length) {
+        $empties = $empties.not('[data-metatype="Book"]')
+    }
+    if ($empties.length === $sections.length) {
+        $empties = $empties.not(':first')
+    }
+    $empties.hide()
+})
+
+
+//==============================================================================
+// Master Block: Offers Callout
+// (appears on Document ToC, Excerpt ToC, Collection Home)
+//==============================================================================
+
+// Show the offers callout if there's anything in it.
+jQuery(function ($) {
+    $('.js-offers-callout').each(function () {
+        const $callout = $(this)
+        const $children = $callout.children()
+            .not('.t-offers:has(.t-offers-none)')
+        if ($children.length) {
+            $callout.show()
+        }
+    })
+})
+
+// Hide the offer heading if it matches the book title.
+jQuery(function ($) {
+    if (! tizra.isBookDetailPage()) return
+
+    const bookTitle = $('div.pub-title h1').html().trim()
+    $('div.t-offers').each(function () {
+        const $offerHeading = $(this).find('li.offerentry h1')
+        if ($offerHeading.length === 1) {
+            const offerTitle = $offerHeading.html().trim()
+            if (offerTitle === bookTitle ||
+                offerTitle === 'Offer on ' + bookTitle)
+            {
+                $offerHeading.hide()
+            }
+        }
+    })
+})
+
+
+//==============================================================================
+// Master Block: Script Resources (applies everywhere)
+//==============================================================================
+
+// Hook up the redemption code modal to the .js-redeem link or button
+jQuery(function ($) {
+    const $modal = $('#redemptionModal')
+    const $form = $('#redemptionForm')
+    const $redemptionCodeInput = $form.find('input[name="redemptionCode"]')
+    const $successUrlInput = $form.find('input[name="successUrl"]')
+    const $formGroup = $redemptionCodeInput.parent('.form-group')
+
+    // Show the modal when trigger clicked.
+    $('.js-redeem').on('click', function (e) {
+        e.preventDefault()
+        if (tizra.requireLogin()) {
+            // Clear stale feedback before showing the modal.
+            tizra.resetFeedback($formGroup)
+            $modal.modal('show')
+        }
+    })
+
+    // Prefill the form from query string.
+    tizra.fillFromQueryString({
+        attemptedRedemptionCode: $redemptionCodeInput,
+        redemptionCode: $redemptionCodeInput,
+        successUrl: $successUrlInput,
+    })
+
+    // Focus the input after the modal appears.
+    $modal.on('shown.bs.modal', function () {
+        $redemptionCodeInput.focus()
+    })
+
+    // Catch click on ok, plan to reload or redirect.
+    $form.find('.js-ok').on('click', function () {
+        const v = $successUrlInput.val()
+        if (v) {
+            document.location = v
+        } else {
+            document.location.reload()
+        }
+    })
+
+    // Catch submit, convert to AJAX.
+    tizra.onSubmit($form, function (e) {
+        e.preventDefault()
+        tizra.disableForm($form)  // prevent double clicks
+
+        const handleSuccess = function (data, queries) {
+            tizra.setFeedback($formGroup, 'success', "Success!")
+            if (queries.length) {
+                const itemsHtml = queries.map(function (r) {
+                    return '<li>' + tizra.escapeHtml(
+                        r.data['parsed-props']['Title'] ||
+                        r.data['parsed-props']['Name'] || ''
+                    ) + '</li>'
+                }).join('')
+                const numOtherItems = data['licenses-added'].length - queries.length
+                $formGroup.append(
+                    '<div class="t-success-details">' +
+                    '<p>The following items have been added to your bookshelf:</p>' +
+                    '<ul>' + itemsHtml + '</ul>' +
+                    (numOtherItems ?
+                        '<span class="t-and-other">and ' + numOtherItems + ' other items.</span>'
+                        : '') +
+                    '</div>'
+                )
+            } else {
+                $formGroup.append(
+                    '<div class="t-success-details">' +
+                    '<p>Your account has been updated.</p>' +
+                    '</div>'
+                )
+            }
+            $form.find('button').toggle()  // show ok button
+        }
+
+        const handleDenied = function (data) {
+            // Example messages:
+            // "Expired redemption code."
+            // "Invalid redemption code."
+            // "NOTLOGGEDIN: You must be logged in to activate a code"
+            // "NOPRODUCT: Redemption Code was misconfigured: no offer specified for product match"
+            // "NOMATCHES: Redemption failed, no content was found"
+            // "Unknown Action type"
+            const match = data.message.toLowerCase().match(/(?:^notloggedin|^noproduct|^nomatches|expired|invalid|unknown(?= action type))/)
+            switch (match && match[0]) {
+                case 'notloggedin':
+                    tizra.setFeedback($formGroup, 'danger', "Please sign in to use a redemption code.")
+                    break
+                case 'expired':
+                    tizra.setFeedback($formGroup, 'danger', "This redemption code has expired.")
+                    break
+                case 'noproduct':
+                case 'nomatches':
+                case 'unknown':
+                    tizra.setFeedback($formGroup, 'danger', "Redemption code is misconfigured. Please contact your account representative.")
+                    break
+                case 'invalid':
+                    tizra.setFeedback($formGroup, 'danger', "That code didn't work. Please make sure you typed it correctly, otherwise the code might have reached its usage limit.")
+                    break
+                default: // null for no match
+                    tizra.setFeedback($formGroup, 'danger', "Error: " + tizra.escapeHtml(data.message))
+            }
+        }
+
+        tizra.fetch('/api/redeem', {
+            method: 'POST',
+            data: {'redemption-code': $redemptionCodeInput.val().trim()},
+        })
+        .then(function (r) {
+            switch (r.status) {
+                case 200:
+                    tizra.setFeedback($formGroup, 'danger', "This code has already been applied to your account.")
+                    break
+                case 201: {
+                    // "licenses-added": [
+                    //     {
+                    //         "user": "foo@bar.com",
+                    //         "id": 1170551528,
+                    //         "controlled": "1251vns",
+                    //         "parsed-props": {
+                    //             "isFreeAccess": false
+                    //         },
+                    //         "status": 1,
+                    //         "is-online-sale": false,
+                    //         "props": {
+                    //             "isFreeAccess": "false",
+                    //             "redemption-code": "48a2da2a83e98dc9",
+                    //             "redemption-date": "Fri Aug 24 01:02:58 UTC 2018",
+                    //             "offerControlled": "1251vns"
+                    //         },
+                    //         "terms": {
+                    //             "is-expired": false,
+                    //             "duration": "perpetual",
+                    //             "excluded-views": [
+                    //                 "sourceDownload"
+                    //             ]
+                    //         },
+                    //         "active": true,
+                    //         "creation-date": "Fri Aug 24 01:02:58 UTC 2018"
+                    //     }
+                    // ],
+                    const licenses = r.data['licenses-added'] || []
+                    Promise.all(licenses.slice(0, 3).map(function (l) {
+                        return tizra.fetch('/api/query?fields=parsed-props&props=Name&props=Title&tizra-id=' + l.controlled)
+                    }))
+                        .then(function (queries) {
+                            handleSuccess(r.data, queries)
+                        })
+                        .catch(function (e) {
+                            console.warn("object queries failed", e)
+                            handleSuccess(r.data, [])
+                        })
+                    return // don't re-enable form
+                }
+                case 400:
+                    handleDenied(r.data)
+                    break
+                default:
+                    tizra.setFeedback($formGroup, 'danger', "Error: " + r.status + " " + r.statusText)
+            }
+            tizra.enableForm($form)
+        })
+        .catch(function (e) {
+            console.error(e)
+            tizra.setFeedback($formGroup, 'danger', "Network error. Please try again later.")
+            tizra.enableForm($form)
+        })
+    })
+
+    // Show the modal immediately if it was prefilled by the query string.
+    if ($redemptionCodeInput.val() && tizra.requireLogin()) {
+        const search = new URLSearchParams(window.location.search)
+        const message = search.get('message')
+        if (message) {
+            tizra.setFeedback($formGroup, 'danger', message)
+        }
+        $modal.modal('show')
+    }
+})
+
+
+//==============================================================================
+// Layouts: Document ToC, Excerpt ToC
+//==============================================================================
+
+// Hide related links when there are none.
+jQuery(function ($) {
+    if (! tizra.isBookDetailPage()) return
+
+    // <div class="t-html related-links">
+    //  <!--template: com/cubchicken/plugin/base/model/PageBlockFreeHtml/html.ftl -->
+    //  <h2>
+    //   Related Links
+    //  </h2>
+    //  <a href="http://people.eecs.berkeley.edu/~bh/sicp.html">
+    //   Why Structure and Interpretation of Computer Programs matters
+    //  </a>
+    //  <a href="https://edge.edx.org/courses/uc-berkeley/cs61as-1x/SICP/about">
+    //   UC Berkeley: CS 61AS
+    //  </a>
+    // </div>
+
+    $('.related-links').each(function () {
+        const $related = $(this)
+        if (! $related.find('a').length) {
+            $related.hide()
+        }
+    })
+})
+
+// Fill the book/excerpt detail pages from the toc, attachments and pdf
+// downloads blocks.
+jQuery(function ($) {
+    if (! tizra.isDetailPage()) return
+
+    // Both the source data and target divs are contained within #content.
+    const $wrapper = $('#content')
+
+    // There are four sections to fill:
+    //
+    //   * table of contents
+    //   * long prop values (abstract)
+    //   * details (anything not long prop or omitted)
+    //   * resources (pdf downloads and attachments)
+    //
+    // In each of these cases, if the source data is empty, then the target
+    // section should be hidden.
+    const $tocBlock = $wrapper.find('.js-toc')
+    const $resourcesBlock = $wrapper.find('.js-downloads')
+    const $detailsBlock = $wrapper.find('.js-details')
+    const $propBlocks = $wrapper.find('.js-prop-value')
+        .has('div.js-content[data-prop]')
+
+    // The details section is filled with any props that aren't either
+    // (1) long values with their own free html block, or (2) omitted
+    // because they're handled elsewhere on the page.
+    const longFieldNames = $propBlocks
+        .find('.js-content')
+        .get()
+        .map(function (elem) {
+            return elem.dataset.prop.toLowerCase()
+        })
+    const omitFieldNames = ['authors']
+
+    // Extract the table of contents and prop fields from the toc smart
+    // block.
+    const $toc = $wrapper.find('div.t-toc').first()
+    const $fields = $toc.children('div.t-field, span.t-toc-prop')
+    const $tocList = $toc.children('ul:first-of-type')
+    const $tocPagers = $toc.children('p.t-toc-paging')
+    const $tocPagerTop = $tocPagers.slice(0, 1)  // like .first()
+    const $tocPagerBottom = $tocPagers.slice(1, 2)  // like fictional .second()
+
+    // Add document toc classes to excerpt toc to make things easier for
+    // both JS and styling.
+    $fields.addClass('t-metatag')
+    $fields.find('.t-toc-prop-name').addClass('t-label')
+    $fields.find('.t-label').next().addClass('t-value')
+
+    const hasContent = function (x) {
+        const $x = $(x)
+        return $x.length && $x.html().trim() !== ''
+    }
+
+    const fillShow = function ($block, items, test) {
+        const $content = $block.find('.js-content').empty().append(items)
+        test = test || hasContent
+        if (test($content)) {
+            // blocks have hidden-until-shown class, and need to be shown
+            // explicitly if they have content.
+            $block.show()
+        } else {
+            // hack: make sure js-expando doesn't show it later
+            $block.removeClass('js-expando')
+        }
+    }
+
+    // Insert the table of contents into its target.
+    fillShow($tocBlock, [
+        $tocPagerTop,
+        $tocList.addClass('t-toc-list'),
+        $tocPagerBottom,
+    ])
+
+    // Insert the long prop values into their targets.
+    $propBlocks.each(function () {
+        // BOOK
+        //
+        //     <div class="t-field t-metatag t-new t-metatag-abstract t-abstract">
+        //      <span class="t-new t-label t-label-abstract">Abstract:</span>
+        //      <span class="t-new t-value-abstract">Foo bar baz</span>
+        //     </div>
+        //
+        //     becomes
+        //
+        //     <div class="t-field t-metatag t-new t-metatag-abstract t-abstract">
+        //      <span class="t-new t-value-abstract">Foo bar baz</span>
+        //     </div>
+        //
+        // EXCERPT
+        //
+        //     <span class="t-toc-prop t-toc-prop-abstract t-abstract">
+        //      <span class="t-toc-prop-name t-toc-prop-name-abstract">Abstract:</span>
+        //      <span class="t-toc-prop-value t-toc-prop-value-abstract">Foo bar baz</span>
+        //     </span>
+        //
+        //     becomes
+        //
+        //     <span class="t-toc-prop t-toc-prop-abstract t-abstract">
+        //      <span class="t-toc-prop-value t-toc-prop-value-abstract">Foo bar baz</span>
+        //     </span>
+        //
+        const $block = $(this)
+        const fieldName = $block.find('.js-content')[0].dataset.prop.toLowerCase()
+        const $field = $fields.filter('.t-' + fieldName).first()
+        $field.children('span.t-label, span.t-toc-prop-name').remove()
+        fillShow($block, $field, function ($content) {
+            return hasContent($content.find('.t-value'))
+        })
+    })
+
+    // Insert the remaining props into the details target.
+    //
+    // BOOK
+    //
+    //     <div class="t-field t-metatag t-new t-metatag-isbn t-isbn" >
+    //      <span class="t-new t-label t-label-isbn">ISBN:</span>
+    //      <span class="t-new t-value-isbn">978-0262510871</span>
+    //     </div>
+    //
+    //     becomes
+    //
+    //     <div class="row">
+    //      <div class="col-12">
+    //       <div class="t-metatags">
+    //        <div class="t-field t-metatag t-new t-metatag-isbn t-isbn" >
+    //         <span class="t-new t-label t-label-isbn">ISBN:</span>
+    //         <span class="t-new t-value-isbn">978-0262510871</span>
+    //        </div>
+    //        ...
+    //       </div>
+    //      </div>
+    //     </div>
+    //
+    // EXCERPT
+    //
+    //     <span class="t-toc-prop t-toc-prop-isbn t-isbn">
+    //      <span class="t-toc-prop-name t-toc-prop-name-isbn">ISBN:</span>
+    //      <span class="t-toc-prop-value t-toc-prop-value-isbn">978-0262510871</span>
+    //     </span>
+    //
+    //     becomes
+    //
+    //     <div class="row">
+    //      <div class="col-12">
+    //       <div class="t-metatags">
+    //        <span class="t-toc-prop t-toc-prop-isbn t-isbn">
+    //         <span class="t-toc-prop-name t-toc-prop-name-isbn">ISBN:</span>
+    //         <span class="t-toc-prop-value t-toc-prop-value-isbn">978-0262510871</span>
+    //        </span>
+    //        ...
+    //       </div>
+    //      </div>
+    //     </div>
+    //
+    const inList = function (fieldNames) {
+        return function () {
+            const $elem = $(this)  // div on book detail, span on excerpt detail
+            for (let i = 0; i < fieldNames.length; i++) {
+                if ($elem.hasClass('t-' + fieldNames[i])) {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+    const $details = $fields
+        .not(inList(longFieldNames))
+        .not(inList(omitFieldNames))
+        .filter(function () {
+            return hasContent($(this).find('.t-value'))
+        })
+    fillShow($detailsBlock, $details, function ($content) {
+        if (hasContent($content)) {
+            $content.children().wrapAll('<div class="row"><div class="col-12"><div class="t-metatags"></div></div></div>')
+            return true
+        }
+    })
+
+    // Attachments, free attachments and PDF downloads.
+    const coverImageUrl = $('.cover-image img').attr('src')
+    if (coverImageUrl) {
+        $wrapper.find('.t-freeattachments-list li').each(function () {
+            const $li = $(this)
+            if (tizra.sameUrl($li.find('a').attr('href'), coverImageUrl)) {
+                console.log("omitting free attachment for cover image: " + coverImageUrl)
+                $li.remove()
+            }
+        })
+    }
+    fillShow($resourcesBlock, [
+        $wrapper.find('.t-pdfdownloads-block').children('p'),
+        $wrapper.find('.t-freeattachments-list'),
+        $wrapper.find('.t-attachments-list'),
+    ], function ($content) {
+        return $content.has('a').length
+    })
+
+    // We have nothing to put in the related links block, but show it if
+    // not empty.
+    $('.js-related-links')
+        .filter(function () {
+            return hasContent($(this).find('.js-content'))
+        })
+        .show()
+})
+
+
+//==============================================================================
+// Static Page: Journal Index
+//==============================================================================
+
+jQuery(function ($) {
+    const $target = $('#virtual-index')
+    if (! $target.length) return
+
+    // VirtualCollectionDefinition should be expressed in the markup:
+    // <div id="virtual-index" data-tizra-id="sjtc4o"></div>
+    const virtualCollectionId = $target[0].dataset.tizraId
+
+    const templates = {}
+    $('script[type="x-tmpl-mustache"]').each(function () {
+        templates[this.id] = this.innerHTML
+    })
+
+    const getTemplate = function (key, fallback) {
+        key = ('' + key).toLowerCase()
+        let template = (
+            templates[key + '-template'] ||
+            templates[fallback + '-template']
+        )
+        if (! template) {
+            console.error('missing template#' + fallback + '-template')
+        }
+        return template || ''
+    }
+
+    const getTitle = function (obj) {
+        const props = obj.props || {}  // ensure object
+        return (
+            props.Title ||
+            (props.Year && props.Year + " Bulletins") ||
+            (props.Decade && props.Decade + "s Decade") ||
+            "Browse " + props.Name
+        )
+    }
+
+    const getCrumb = function (obj) {
+        const props = obj.props || {}  // ensure object
+        return (
+            props.Crumb ||
+            props.Title ||
+            props.Year ||
+            (props.Decade && props.Decade + "s") ||
+            props.Name
+        )
+    }
+
+    const getLink = function (obj, forceHash) {
+        const urlId = obj['url-id']
+        const hash = urlId.indexOf('@') > -1
+            ? urlId.replace(/^.*?@/, '#')
+            : '#'
+        return hash.length > 1 || forceHash ? hash : '/' + urlId + '/'
+    }
+
+    const getCover = function (obj) {
+        const props = obj.props || {}  // ensure object
+        const cover = props.CoverImage || ''
+        return (
+            // XXX this doesn't handle custom covers
+            (cover && cover.indexOf('/') === -1 &&
+                '/' + cover + '/1.jpg?zoomFactor=.3') ||
+            (cover && cover.startsWith('~') &&
+                obj['url-id'].replace('/$', '') + '/' + cover) ||
+            cover ||
+            // note access denied if zoomFactor isn't supplied
+            (obj['meta-type'] === 'Book' &&
+                '/' + obj['url-id'] + '/1.jpg?zoomFactor=.3') ||
+            null
+        )
+    }
+
+    const getContext = function (obj, items, sample, count) {
+        return Object.assign({
+            cover: getCover(obj) || getCover(sample || {}),
+            title: getTitle(obj),
+            items: (items || []).map(function (item) {
+                return getContext(item, item._items, item._sample, item._count)
+            }),
+            count: count,
+            link: getLink(obj),
+        }, obj)
+    }
+
+    const isVirtualCollection = function (obj) {
+        const metaType = obj['meta-type']
+        switch (metaType) {
+            case 'VirtualCollectionDefinition':
+            case 'VirtualCollection':
+                return true
+            case 'VirtualCollectionInstance':
+                return false
+        }
+        console.warn("isVirtualCollection doesn't know about " + metaType)
+    }
+
+    const renderMain = function (collections, instances, contents) {
+        console.log({
+            collections: collections,
+            instances: instances,
+            contents: contents,
+        })
+        const coll = collections[collections.length - 1]
+        const itemTemplate = instances && instances.length &&
+            parseFilterString(instances[0]['url-id']).reverse()[0][0]
+        const fallbackTemplate = isVirtualCollection(coll.query)
+            ? 'collection' : 'publication'
+        const template = getTemplate('main')
+        const context = Object.assign(
+            getContext(
+                coll.query,
+                contents || instances
+            ), {
+                crumbs: collections.map(function (c, i) {
+                    const obj = c.query
+                    return {
+                        label: getCrumb(obj),
+                        link: getLink(obj, true),
+                        active: i === collections.length - 1 && 'active',
+                    }
+                }),
+                hasCrumbs: collections.length > 1,
+            })
+        const partials = {
+            wrapperTemplate: getTemplate(
+                itemTemplate + '-wrapper',
+                fallbackTemplate + '-wrapper'
+            ),
+            itemTemplate: getTemplate(itemTemplate, fallbackTemplate),
+        }
+        console.log({
+            context: context,
+            partials: partials,
+        })
+        const html = Mustache.render(template, context, partials)
+        $target.html(html)
+        // XXX setting active here doesn't seem to do anything
+        $target.find('.breadcrumb-item:last-child').addClass('active')
+        window.scroll(0, 0)
+    }
+
+    const parseFilterString = function (s) {
+        const filters = !s.length ? [] : s
+            .split('@')
+            .map(function (t) { return t.split('=') })
+        return filters
+    }
+
+    const fetched = {
+        instances: {},
+        query: {},
+        contents: {},
+        sample: {},
+    }
+
+    const fetch = function (type, idOrIds) {
+        const single = typeof idOrIds === 'string'
+        const ids = single ? [idOrIds] : idOrIds
+        const needIds = ids.filter(function (id) {
+            return fetched[type][id] === undefined
+        })
+
+        let p = (
+            needIds.length
+            ? refetch(type, needIds)
+            : Promise.resolve([])
+        )
+            .then(function () {
+                return ids.map(function (id) {
+                    return fetched[type][id]
+                })
+            })
+
+        if (single) {
+            p = p.then(function (arr) {
+                if (arr.length !== 1) {
+                    throw "wrong length arr = " + arr.length
+                }
+                return arr[0]
+            })
+        }
+
+        return p
+    }
+
+    const refetch = function (type, ids) {
+        let p
+
+        switch (type) {
+            case 'query': {
+                const search = ids
+                    .map(function (id) { return 'tizra-id=' + id })
+                    .join('&')
+                p = tizra.fetch('/api/query?' + search)
+                    .then(function (r) {
+                        return typeof r.data === 'object' ? [r.data] : r.data
+                    })
+                break
+            }
+
+            case 'sample':
+                p = Promise.all(ids.map(function (id) {
+                    return tizra.fetch('/api/query/contents?sort-prop=IssueDate&descending=true&page=1&tizra-id=' + id)
+                        .then(function (r) { return r.data })
+                }))
+                break
+
+            case 'contents':
+            case 'instances':
+                p = Promise.all(ids.map(function (id) {
+                    return tizra.fetch('/api/query/' + type + '?tizra-id=' + id)
+                        .then(function (r) { return r.data.result })
+                }))
+                break
+
+            default:
+                throw "refetch doesn't know about " + type
+        }
+
+        p = p.then(function (arr) {
+            arr.forEach(function (obj, i) {
+                fetched[type][ids[i]] = obj
+            })
+            return arr
+        })
+            .catch(function (reason) {
+                throw "refetch failed: " + reason
+            })
+
+        return p
+    }
+
+    const promisedProperties = function (obj) {
+        const keys = []
+        const values = []
+        Object.entries(obj).forEach(function (arr) {
+            keys.push(arr[0])
+            values.push(arr[1])
+        })
+        return Promise.all(values)
+            .then(function (resolvedValues) {
+                return resolvedValues.reduce(function (resolvedObject, value, index) {
+                    resolvedObject[keys[index]] = value
+                    return resolvedObject
+                }, {})
+            })
+    }
+
+    const rerender = function () {
+        const filters = parseFilterString(document.location.hash.substr(1))
+
+        let chain = Promise.all([
+            promisedProperties({
+                query: fetch('query', virtualCollectionId),
+                instances: fetch('instances', virtualCollectionId),
+            }),
+        ])
+
+        filters.forEach(function (filter, i) {
+            const bindings = filters
+                .slice(0, i + 1)
+                .reduce(function (obj, filter) {
+                    obj[filter[0]] = filter[1]
+                    return obj
+                }, {})
+            const jsonBindings = JSON.stringify(bindings)
+            chain = chain.then(function (collections) {
+                const instances = collections[collections.length - 1].instances
+                const found = Object.values(instances)
+                    .find(function (instance) {
+                        const jsonCompare = JSON.stringify(instance.bindings)
+                        return jsonCompare === jsonBindings
+                    })
+                if (!found) {
+                    throw "couldn't find " + jsonBindings
+                }
+
+                if (isVirtualCollection(found)) {
+                    collections.push(promisedProperties({
+                        query: fetch('query', found['tizra-id']),
+                        instances: fetch('instances', found['tizra-id']),
+                    }))
+                } else {
+                    collections.push(promisedProperties({
+                        query: fetch('query', found['tizra-id']),
+                        contents: fetch('contents', found['tizra-id']),
+                    }))
+                }
+
+                return Promise.all(collections)
+            })
+        })
+
+        // Hack samples to the end of the collections array,
+        // then extract then back into each instance._sample
+        // and instance._count
+        chain = chain.then(function (collections) {
+            const coll = collections[collections.length - 1]
+            const collectionsPlus = collections.concat(coll.instances
+                ? Promise.all(coll.instances.map(function (instance) {
+                    return fetch('sample', instance['tizra-id'])
+                }))
+                : [null]
+            )
+            return Promise.all(collectionsPlus)
+        })
+            .then(function (collectionsPlus) {
+                const samples = collectionsPlus[collectionsPlus.length - 1]
+                const collections = collectionsPlus.slice(0, collectionsPlus.length - 1)
+                const coll = collections[collections.length - 1]
+                if (coll.instances) {
+                    coll.instances.forEach(function (instance, i) {
+                        instance._sample = (
+                            samples[i].result &&
+                            samples[i].result.length &&
+                            samples[i].result[0]
+                        )
+                        instance._count = (
+                            samples[i].size === 100
+                            ? '100+'
+                            : samples[i].size
+                        )
+                    })
+                }
+                return collections
+            })
+
+        chain.then(function (collections) {
+            const coll = collections[collections.length - 1]
+            const instances = coll.instances &&
+                tizra.magicSort(coll.instances, function (obj) {
+                    return obj.props.Year || obj.props.Decade
+                }).reverse()
+            const contents = coll.contents &&
+                tizra.magicSort(coll.contents, function (obj) {
+                    return obj.props.IssueDate
+                }).reverse()
+            renderMain(collections, instances, contents)
+        })
+    }
+
+    window.addEventListener("hashchange", rerender)
+    rerender()
+})
+
+
+//==============================================================================
+// SEARCH APP
+//
+// The react-powered search app runs in its own isolated JS, but needs some
+// interaction with other parts of the page. Conditionally hook those up
+// here.
+//==============================================================================
+
+jQuery(function ($) {
+    // Wire the advanced search link to switch screens rather than loading
+    // the page from the server, so that search parameters are preserved.
+    if (tizra.switchToAdvancedSearch) {
+        $('.t-advancedlink a').on('click', function (e) {
+            e.preventDefault()
+            tizra.switchToAdvancedSearch()
+        })
+    }
+})
+
+jQuery(function ($) {
+    // Give the quick search auto-completing powers by calling into the
+    // search app.
+    if (tizra.autoComplete && $.fn.autoComplete) {
+        let $inputs = $('.t-quick-data input[name="searchText"]')
+        if (! $('#root.ui').length) {
+            // Might as well augment traditional advanced search too.
+            $inputs = $inputs.add('.t-advancedsearch .t-input input[name="searchText"]')
+        }
+        $inputs.each(function (_, elem) {
+            const $input = $(elem)
+            $input.attr({
+                autocapitalize: "none",
+                autocomplete: "off",
+                autocorrect: "off",
+            })
+            $input.autoComplete({
+                source: function (term, suggest) {
+                    tizra.autoComplete(
+                        term,
+                        $input[0].selectionStart,
+                        $input[0].selectionEnd
+                    )
+                        .then(suggest)
+                },
+                renderItem: function (completion, search) {
+                    const json = JSON.stringify(completion)
+                    return (
+                        '<div class="autocomplete-suggestion"' +
+                        ' data-val="' + tizra.escapeHtml(completion.full) + '"' +
+                        ' data-json="' + tizra.escapeHtml(json) + '"' +
+                        '>' + (
+                            tizra.escapeHtml(completion.before) +
+                            '<strong>' + tizra.escapeHtml(completion.suggestion) + '</strong>' +
+                            tizra.escapeHtml(completion.after)
+                        ) +
+                        '</div>'
+                    )
+                },
+                onSelect: function (e, val, $item) {
+                    const completion = JSON.parse($item.attr('data-json'))
+                    $input[0].focus()
+                    $input[0].selectionStart = completion.selectionStart
+                    $input[0].selectionEnd = completion.selectionEnd
+                    // immediately call for completions based on the
+                    // new input
+                    $input.trigger('keyup.autocomplete')
+                },
+                delay: 0,  // handled by tizra.autoComplete
+                cache: false,  // handled by tizra.autoComplete
+                minChars: 0,  // handled by tizra.autoComplete
+                liveValue: false,
+                propagateEnter: false,
+                propagateTab: false,
+            })
+        })
+    }
+})
+
+jQuery(function ($) {
+    // Wire the quick search box to update search results while keeping the
+    // rest of the filter settings intact.
+    if (tizra.quickSearch) {
+        function quickUpdate(form, isSubmit) {
+            const data = $(form)
+                .serializeArray()
+                .reduce(function (acc, cur) {
+                    acc[cur.name] = cur.value
+                    return acc
+                }, {})
+            tizra.quickSearch({
+                terms: data.searchText,
+                context: data.context,
+            }, isSubmit)
+        }
+        const $forms = $('.t-quick-data input[name="searchText"]')
+            .closest('form')
+        tizra.onSubmit($forms, function (e, form) {
+            e.preventDefault()
+            quickUpdate(form, true)
+        })
+        // additionally update immediately when the context changes
+        $forms.find('select[name="context"]')
+            .on('change', function () {
+                const $form = $(this).closest('form')
+                quickUpdate($form, false)
+            })
+    } else {
+        // The search application isn't available because we're not on the
+        // advanced search or search results page. The quick search form
+        // will submit normally and the search application will discover
+        // the query paramters in document.location
+    }
+})
+
+
+//==============================================================================
+// Global fixes
+//
+// Keep these at the bottom, since they need to apply after page
+// rearrangements above (especially expando)
+//==============================================================================
+
+// Remove .t-new everywhere because reader css, which inexplicably
+// loads on normal pages, causes .t-new to be hidden.
+jQuery(function ($) {
+    $('.t-new').removeClass('t-new')
+})
+
+// Make clickable divs clickable, especially for the journal index but
+// applies everywhere. This binds to document so it handles divs that are
+// dynamically added to the page.
+jQuery(function ($) {
+    $(document).on('click', 'div.clickable', function (e) {
+        e.preventDefault()
+        document.location = $(this).find('a')[0].href
+    })
+})
+
+// Collapse long sections with an "(expand)" link.
+// In the HTML, these divs can optionally include .hidden-until-shown to
+// avoid showing the full text before collapsing.
+jQuery(function ($) {
+    $('.js-expando').each(function () {
+        const $expando = $(this)
+        const $smWrapper = $expando
+            .wrapInner('<div></div>')
+            .children()
+        const $mdWrapper = $smWrapper
+            .clone()
+            .appendTo($expando)
+        $smWrapper.addClass('d-md-none')
+        $mdWrapper.addClass('d-none d-md-block')
+
+        // Not pure: will add <p> tags if there are none.
+        function firstParagraphAndRest($wrapper) {
+            if ($wrapper.find('p').length === 0) {
+                // There are no paragraph tags, but if we can find
+                // a non-empty text node, then assume everything at that
+                // level should be a paragraph together.
+                $wrapper
+                    .find('div span')
+                    .addBack()
+                    .contents()
+                    .filter(function () {
+                        return (this.nodeType === 3 &&
+                                this.nodeValue.trim() !== '')
+                    })
+                    .first()
+                    .parent()
+                    .wrapInner('<p></p>')
+            }
+            const $first = $wrapper.find('p').first()
+            const $contents = $first.parent().contents()
+            const firstIndex = $contents.index($first)
+            const $rest = $contents.slice(firstIndex + 1)
+            return [$first, $rest]
+        }
+
+        function hideParagraphs($wrapper) {
+            const fr = firstParagraphAndRest($wrapper)
+            const $first = fr[0], $rest = fr[1]
+            if ($first.text().trim().length !== 0 &&
+                $rest.text().trim().length !== 0)
+            {
+                const $expand = $('<a class="expando-link" href="#">(expand)</a>')
+                    .click(function (e) {
+                        e.preventDefault()
+                        $rest.show()
+                        $expand.hide()
+                    })
+                $first.append(' ').append($expand)
+                $rest.hide()
+                return true
+            }
+        }
+
+        function hideSentences($wrapper) {
+            const fr = firstParagraphAndRest($wrapper)
+            const $first = fr[0], $rest = fr[1]
+            // Regex note: /[^]/ is like /./s but the s flag isn't standard
+            const sentences = $first.text().match(/\S[^]*?[.?!](?=\s|$)/g)
+            if (sentences && sentences.length > 1) {
+                const $short = $first
+                    .clone()
+                    .text(sentences[0])
+                const $expand = $('<a class="expando-link" href="#">(expand)</a>')
+                    .click(function (e) {
+                        e.preventDefault()
+                        $short.hide()  // includes $expand
+                        $first.show()
+                        $rest.show()
+                    })
+                $short
+                    .append(' ')
+                    .append($expand)
+                    .insertBefore($first)
+                $first.hide()
+                $rest.hide()
+                return true
+            }
+        }
+
+        // Hide all but the first paragraph on screens medium and larger.
+        hideParagraphs($mdWrapper)
+
+        // Hide all but the first sentence on small screens, falling back
+        // to paragraph mode if necessary.
+        hideSentences($smWrapper) || hideParagraphs($smWrapper)
+
+        // Show the entire expando, in case it's .hidden-until-shown
+        $expando.show()
+    })
+})
